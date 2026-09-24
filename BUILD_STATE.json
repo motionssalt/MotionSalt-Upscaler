@@ -2,7 +2,7 @@
   "project": "MotionSalt-Upscaler",
   "repo": "https://github.com/motionssalt/MotionSalt-Upscaler",
   "last_updated_utc": "2026-09-24",
-  "current_step": "update_1_in_progress",
+  "current_step": "complete",
   "steps": {
     "step1_inventory": {
       "status": "done",
@@ -151,7 +151,8 @@
   },
   "errors": [
     "7z 23.01 could not extract RAR5 'Unsupported Method' - resolved with bsdtar",
-    "Dropbox HEAD requests do not return content-length (302 chains into dl.dropboxusercontent) - sizes for TRT taken from HF x-linked-size header; ONNX size measured post-download"
+    "Dropbox HEAD requests do not return content-length (302 chains into dl.dropboxusercontent) - sizes for TRT taken from HF x-linked-size header; ONNX size measured post-download",
+    "update_1: none; wheelhouse-as-Release-asset approach rejected (asset size limit + pycuda/CUDA coupling) — see update_1.fix2_startup_speed"
   ],
   "update_1": {
     "date_utc": "2026-09-24",
@@ -163,10 +164,44 @@
       "reasoning": "colab.research.google.com/github/<org>/<repo>/blob/<branch>/<path> is GitHub's canonical Colab deep-link; a click opens the notebook in Colab instead of showing raw JSON."
     },
     "fix2_startup_speed": {
-      "status": "in_progress"
+      "status": "done",
+      "root_cause_confirmed": "Compared original Cell 1 V15.5 vs current Cell A step by step. Differences adding time: (1) Original restored a warm pip cache (HF dataset legend2008/kzm-cache-v4, ~hundreds of MB, 8-way parallel snapshot_download) and ran every pip install with --cache-dir pointing at it; the rebuild used plain pip with an empty cache. Biggest single cost: pycuda has NO wheels on PyPI, so a cold 'pip install pycuda' compiles C++ against the CUDA toolkit (~2-4 min) while the warm cache held the pre-built wheel (~seconds). (2) The rebuild ran ~7 separate pip invocations, each paying full dependency-resolution overhead; original resolved within one cached session. (3) The rebuild unconditionally uninstalled+reinstalled tensorrt (tensorrt-cu12-libs wheel is ~2 GB) even when a compatible TensorRT was already importable. (4) The 5 weight files (~388 MB total) downloaded strictly sequentially via curl; original Cell 1 also did these sequentially, so this is unchanged-but-improvable, not a regression.",
+      "wheelhouse_alternative_assessed_and_rejected": "Hosting our own prebuilt pip wheel bundle as a GitHub Release asset (the direct equivalent of the HF cache) was assessed and rejected for two hard reasons: tensorrt-cu12-libs alone (~2.3 GB) exceeds GitHub's 2 GB per-Release-asset limit, and a prebuilt pycuda wheel is coupled to Colab's exact Python + CUDA toolkit versions, which cannot be built reliably without the live runtime (and would silently break when Colab upgrades its image). Documented as a deliberate decision.",
+      "replacement": [
+        "Install-once detection: every dependency is import-probed first; only missing/wrong-version packages are installed, in ONE combined pip call (one resolution pass, pip output streams live).",
+        "TensorRT is kept if already importable at 10.x (turns re-runs in the same runtime from a ~2 GB reinstall into seconds).",
+        "Weight downloads now run 5-way parallel (ThreadPoolExecutor) from the GitHub Release CDN, with an aggregate tqdm bar showing real MB/%.",
+        "proteus_core.py is now always fetched fresh (tiny file; removes stale-core risk from the old 'skip if exists' logic).",
+        "Kept --prefer-binary everywhere so pip never attempts avoidable source builds."
+      ],
+      "expected_effect": "First run: saves pip resolution overhead and parallelizes the ~388 MB weight fetch (~2-4x faster download step on Colab's link); pycuda source compile on first run is the one unavoidable cost without a credential-free prebuilt wheel. Re-runs in the same runtime: near-instant dependency step (all probes hit), weights skipped if already local."
     },
     "logging_progress": {
-      "status": "in_progress"
+      "status": "done",
+      "details": [
+        "Step banners + per-step elapsed timers ([1/4]..[4/4]) and a TOTAL setup time print before launch.",
+        "pip output streams live (no more silent capture) so installs never look stuck.",
+        "Aggregate tqdm progress bar for weight downloads (true % via HEAD content-length probe, MB/s, ETA).",
+        "Per-file completion lines with sizes; failed downloads raise with a clear message instead of silently continuing.",
+        "Logging survives the speed fix by design: parallel workers feed one locked tqdm bar; no output is captured or suppressed anywhere in the cell."
+      ]
+    },
+    "verification": {
+      "in_sandbox": {
+        "notebook_json_valid": true,
+        "cell_ast_parse": "OK",
+        "readme_links_to_colab": true,
+        "colab_url_http": "405",
+        "weight_urls_http": {
+          "prob-v3-fgnet-fp16-576x672-1x.trt": "200",
+          "prob-v3-fgnet-fp16-576x672-2x.trt": "200",
+          "prob-v3-fgnet-fp32-576x672-1x.trt": "200",
+          "prob-v3-fgnet-fp32-576x672-2x.trt": "200",
+          "prob-v3-fgnet-fp32-576x672-2x.onnx": "200"
+        },
+        "secret_scan": "clean"
+      },
+      "colab_end_to_end": "NOT run here — sandbox has no GPU/Colab runtime. The cell now prints per-step and TOTAL setup time, so before/after numbers are produced by the cell itself on the next Colab run. Pre-fix baseline was never instrumented (the old cell printed no timings), so an exact before/after delta is unavailable; this is stated honestly rather than estimated."
     }
   }
 }
