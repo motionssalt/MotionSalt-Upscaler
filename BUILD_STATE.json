@@ -248,5 +248,24 @@
   "notes": "Source dataset confirmed public (53 files). Original Cell 1 mechanism reconfirmed from the RAR: HF-dataset-hosted pip http-v2 cache + wheels dir, restored with snapshot_download and used via pip --cache-dir. Notebook wiring (Cell A -> motionssalt/proteus-v3-pip-cache, MotionSalt read-only runtime token) unchanged and already correct from update_2.",
   "run_result": "GitHub Actions run id 36052187245, conclusion=success, ~60s end-to-end on GitHub-hosted runner with hf_transfer (vs sandbox which could not complete these transfers at all)",
   "cleanup": "HF_MIGRATION_TOKEN Actions secret retained in repo for future re-runs of sync-pip-cache.yml; workflow is idempotent (0 files to sync when already in sync) and safe to re-dispatch anytime"
+ },
+ "update_4": {
+  "date_utc": "2026-09-24",
+  "summary": "User report: setup cell appears completely dead at [1/4] after the pip-cache restore completes (waited 20+ min). The update_1 version (plain pip) was slow but visibly progressing. Diagnosed by comparing the original Cell 1 V15.5 (from the RAR) against Cell A line by line.",
+  "diagnosis_vs_original_cell1": {
+   "root_cause_1_single_combined_pip_pass": "update_2 merged ALL missing packages into ONE pip call (tensorrt-cu12 + tensorrt + pycuda + onnxruntime-gpu + onnxruntime + gradio + pillow + requests + tqdm). A single combined resolution forces pip's resolver to backtrack across tensorrt<11 / gradio / onnxruntime version constraints, re-downloading candidate wheels for tens of minutes. The original Cell 1 installed in SMALL ORDERED CALLS (numpy; tensorrt-cu12; tensorrt; pycuda; cv2), each resolving in seconds against the warm cache.",
+   "root_cause_2_silent_pycuda_source_build": "pycuda has no PyPI wheels. The warm cache's prebuilt pycuda wheel is CPython-version-specific; when it does not match Colab's current Python, pip compiles pycuda from source (nvcc/gcc, minutes) while showing only a 'Building wheel for pycuda' spinner line — indistinguishable from a hang.",
+   "root_cause_3_onnxruntime_double_install": "Cell A installed 'onnxruntime-gpu' AND 'onnxruntime' in the same pass; both packages own the same module directory, adding resolver churn and risking a broken install. Original Cell 2 ships onnxruntime-gpu only.",
+   "contributing_factor": "Since update_3 completed the cache sync (53/53 incl. the two ~4.3GB tensorrt_*_libs wheels), the [1/4] cache restore now downloads ~9GB before the first pip line — by design (same as original Cell 1), but it lengthens the quiet part of the step on slow links."
+  },
+  "fix": [
+   "Replaced the single combined pip pass with small, ordered, separately-timed pip groups in the original Cell 1 order (numpy -> opencv -> tensorrt-cu12 -> tensorrt -> onnxruntime-gpu -> UI stack), each with flush=True markers, per-group elapsed prints, pip --retries/--timeout, and a 30-min hard timeout + no-cache retry.",
+   "pycuda now installs LAST and ALONE with pip -v so compiler output streams live; an explicit '~2-5 min, NOT stuck' notice prints before it.",
+   "onnxruntime double-install removed: only onnxruntime-gpu is installed (it provides the onnxruntime module + CUDAExecutionProvider).",
+   "Added a 'Probing installed packages' marker right after cache restore so the exact sub-step is always identifiable from output.",
+   "Post-install import confirmation now also prints onnxruntime providers and pycuda status."
+  ],
+  "verification": "Sandbox: all 6 edit anchors matched exactly once; notebook JSON round-trip valid; cell source ast.parse OK. No GPU/Colab here, so the live end-to-end confirmation is the user's next Colab run; the cell now prints enough markers that any future stall localizes to an exact sub-step.",
+  "notes": "HF cache wiring (motionssalt/proteus-v3-pip-cache + MotionSalt read-only token) unchanged and reconfirmed identical in mechanism to the original Cell 1. Fixes from update_2 (TensorRT context init, auto ONNX fallback, per-frame progress) untouched."
  }
 }
