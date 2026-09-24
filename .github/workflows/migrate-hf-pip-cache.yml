@@ -1,0 +1,20 @@
+name: migrate-hf-pip-cache
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HF_TOKEN: ${{ secrets.HF_MIGRATION_TOKEN }}
+      HF_HOME: ${{ github.workspace }}/hfhome
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -U huggingface_hub
+      - name: Sync missing files from legend2008/kzm-cache-v4 and verify
+        run: python scripts/migrate_hf_cache.py

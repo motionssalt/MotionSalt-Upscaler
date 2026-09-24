@@ -231,5 +231,29 @@
     },
     "speed_verification": "Startup timing: cell prints per-step and TOTAL setup time on every run; no pre-fix instrumented baseline exists (the pre-fix cell printed no timings), so an exact numeric before/after delta is unavailable \u2014 stated honestly rather than estimated. Expected: warm pip cache removes the multi-minute cold pycuda source compile and most pip download time vs the update_1 state.",
     "secret_hygiene": "No tokens written to BUILD_STATE.json; notebook embeds only the read-only runtime token in split form (already accepted by push protection in commit 1395d00)."
+  },
+  "update_3": {
+    "date_utc": "2026-09-24",
+    "summary": "Finish update_2's failed HF pip-cache migration. Sandbox could not upload the two ~4 GB tensorrt_*_libs wheels (disk/transfer limits); per owner decision the copy now runs on GitHub Actions (ubuntu-latest, ~14 GB disk, datacenter-speed link to HF) via a committed, resumable, workflow_dispatch workflow.",
+    "approach": {
+      "why_actions_not_sandbox": "Sandbox is ephemeral and failed on multi-GB LFS uploads; GH-hosted runner has the disk + stable long transfers, runs unattended, and the script is idempotent (only missing/mismatched files are re-synced).",
+      "workflow": ".github/workflows/migrate-hf-pip-cache.yml (manual dispatch)",
+      "script": "scripts/migrate_hf_cache.py - diffs source vs dest by name+size, downloads each missing file with hf_hub_download, uploads with HfApi.upload_file (3 retries), deletes local copy after each upload, then re-lists BOTH repos and hard-fails unless they match file-for-file.",
+      "secret": "HF write/migration token stored as repo Actions secret HF_MIGRATION_TOKEN via GitHub's encrypted-secrets API (value never written to the repo, logs, or BUILD_STATE.json).",
+      "audit_at_dispatch": {
+        "source_files": 53,
+        "source_gb": 8.04,
+        "dest_files": 51,
+        "missing": [
+          "kzm_cache_v4/wheels/b5/f0/ba/4cc5eb6ac13f08817680d4442c19eba3479ac333f8ae9e405b/tensorrt_cu12_libs-10.16.1.11-py3-none-manylinux_2_28_x86_64.whl (4.304 GB)",
+          "kzm_cache_v4/wheels/f3/7a/3f/21ba99eefd63fdd865ce704e45311565b7985be83daaf9eecf/tensorrt_cu13_libs-10.16.1.11-py3-none-manylinux_2_28_x86_64.whl (3.729 GB)"
+        ],
+        "size_mismatches": 0
+      }
+    },
+    "fix2_hf_cache_migration": {
+      "status": "in_progress",
+      "note": "workflow dispatched; will be flipped to done after the run's built-in file-for-file verification passes"
+    }
   }
 }
