@@ -2,7 +2,7 @@
   "project": "MotionSalt-Upscaler",
   "repo": "https://github.com/motionssalt/MotionSalt-Upscaler",
   "last_updated_utc": "2026-09-24",
-  "current_step": "step3_repo_files",
+  "current_step": "complete",
   "steps": {
     "step1_inventory": {
       "status": "done",
@@ -14,9 +14,20 @@
       },
       "parameters_exposed_by_cell2": {
         "INPUT_PATH": "string (video or image file)",
-        "SCALE": ["1x", "2x"],
-        "Quality_Preset": ["Custom", "V1 Anime 1 Pass", "V2 Anime 2 Pass", "V3 Anime High Quality 2 Pass"],
-        "Upscaling_Speed_Up": ["ON (FP16)", "OFF (FP32)"],
+        "SCALE": [
+          "1x",
+          "2x"
+        ],
+        "Quality_Preset": [
+          "Custom",
+          "V1 Anime 1 Pass",
+          "V2 Anime 2 Pass",
+          "V3 Anime High Quality 2 Pass"
+        ],
+        "Upscaling_Speed_Up": [
+          "ON (FP16)",
+          "OFF (FP32)"
+        ],
         "Anti_Alias_Deblur": "slider -100..100 default 50",
         "ReduceNoise": "slider 0..100 default 17",
         "RecoverDetails": "slider 0..100 default 100",
@@ -24,14 +35,47 @@
         "Sharpen": "slider 0..100 default 20",
         "RevertCompression": "slider 0..100 default 100",
         "Recover_Original_Details": "slider 0..100 default 0",
-        "Input_Video_Resolution": ["1080p", "1440p", "2160p", "No Resize"],
-        "Input_Image_Resolution": ["1080p", "1440p", "2160p", "No Resize"],
-        "Output_Video_Resize": ["Original AI Output", "1080p HD", "1440p 2K", "2160p 4K"],
-        "Image_Format": ["PNG 8bit", "PNG 16bit", "TIFF 10bit", "TIFF 12bit", "TIFF 16bit"],
-        "Encoder": ["x264 8bit", "x265 8bit", "x265 10bit", "ProRes 4444 12bit", "FFV1 16bit Lossless"],
-        "Save_Frames": ["ON", "OFF"],
+        "Input_Video_Resolution": [
+          "1080p",
+          "1440p",
+          "2160p",
+          "No Resize"
+        ],
+        "Input_Image_Resolution": [
+          "1080p",
+          "1440p",
+          "2160p",
+          "No Resize"
+        ],
+        "Output_Video_Resize": [
+          "Original AI Output",
+          "1080p HD",
+          "1440p 2K",
+          "2160p 4K"
+        ],
+        "Image_Format": [
+          "PNG 8bit",
+          "PNG 16bit",
+          "TIFF 10bit",
+          "TIFF 12bit",
+          "TIFF 16bit"
+        ],
+        "Encoder": [
+          "x264 8bit",
+          "x265 8bit",
+          "x265 10bit",
+          "ProRes 4444 12bit",
+          "FFV1 16bit Lossless"
+        ],
+        "Save_Frames": [
+          "ON",
+          "OFF"
+        ],
         "Quality": "slider 0..51 default 16",
-        "Auto_Download": ["ON", "OFF"]
+        "Auto_Download": [
+          "ON",
+          "OFF"
+        ]
       },
       "hardcoded_in_cell2": "IMAGE_PASSES=3, VIDEO_FIRST_PASSES=3, PREFLIGHT=10 warmup frames, TILE 576x672, OVERLAP=192, input channels {1x:15, 2x:24}, temporal processing always ON",
       "weight_sizes_bytes": {
@@ -39,7 +83,7 @@
         "prob-v3-fgnet-fp32-576x672-2x.trt": 140093244,
         "prob-v3-fgnet-fp16-576x672-1x.trt": 27508252,
         "prob-v3-fgnet-fp16-576x672-2x.trt": 42208212,
-        "prob-v3-fgnet-fp32-576x672-2x.onnx": "Dropbox HEAD does not expose size; measured after download"
+        "prob-v3-fgnet-fp32-576x672-2x.onnx": 82532791
       },
       "credential_scan": "Only embedded credential is the original creator's HF read-only token in Cell 1 (hf_...). It is NOT reused, committed, or referenced anywhere in this repo. HF bucket URLs for .trt engines and Dropbox links are public and tokenless. No other secrets found.",
       "redistribution_flag": {
@@ -49,14 +93,20 @@
       }
     },
     "step2_weight_hosting": {
-      "status": "in_progress",
+      "status": "done",
       "decision": "GitHub Release assets. Largest file is 140MB (fp32 2x TRT) - far under the 2GB per-asset Release limit, and over the 100MB git hard-block, so Releases are the correct host (not git, not LFS).",
       "sources": "4x .trt mirrored from the public HF bucket (legend2008/proteus-v3-backup, tokenless); fp32 2x .onnx mirrored from the original public Dropbox link",
       "release_tag": "v15.5-weights",
-      "asset_urls": "PENDING - filled after upload completes"
+      "asset_urls": {
+        "prob-v3-fgnet-fp16-576x672-1x.trt": "https://github.com/motionssalt/MotionSalt-Upscaler/releases/download/v15.5-weights/prob-v3-fgnet-fp16-576x672-1x.trt",
+        "prob-v3-fgnet-fp16-576x672-2x.trt": "https://github.com/motionssalt/MotionSalt-Upscaler/releases/download/v15.5-weights/prob-v3-fgnet-fp16-576x672-2x.trt",
+        "prob-v3-fgnet-fp32-576x672-1x.trt": "https://github.com/motionssalt/MotionSalt-Upscaler/releases/download/v15.5-weights/prob-v3-fgnet-fp32-576x672-1x.trt",
+        "prob-v3-fgnet-fp32-576x672-2x.trt": "https://github.com/motionssalt/MotionSalt-Upscaler/releases/download/v15.5-weights/prob-v3-fgnet-fp32-576x672-2x.trt",
+        "prob-v3-fgnet-fp32-576x672-2x.onnx": "https://github.com/motionssalt/MotionSalt-Upscaler/releases/download/v15.5-weights/prob-v3-fgnet-fp32-576x672-2x.onnx"
+      }
     },
     "step3_repo": {
-      "status": "in_progress",
+      "status": "done",
       "repo_url": "https://github.com/motionssalt/MotionSalt-Upscaler",
       "visibility": "public",
       "license": "MIT",
@@ -64,16 +114,29 @@
       "original_creator_link": "https://huggingface.co/legend2008 (only discoverable attribution: HF dataset legend2008/kzm-cache-v4 and bucket legend2008/proteus-v3-backup in Cell 1)"
     },
     "step4_notebook": {
-      "status": "pending",
+      "status": "done",
       "temp_host_choice": {
         "primary": "litterbox.catbox.moe (catbox temp host)",
         "fallback": "tmpfiles.org API",
         "reasoning": "Probed at build time 2026-09-24: litterbox anonymous API upload succeeded (returned https://litter.catbox.moe/ URL, 72h expiry, 1GB limit, no key). tmpfiles.org API also live (1h-60min retention, extension required). 0x0.st and transfer.sh did not respond; file.io redirects/deprecated."
-      }
+      },
+      "deliverables": [
+        "MotionSalt_Upscaler.ipynb",
+        "proteus_core.py (fetched by the cell from repo raw URL)"
+      ]
     },
     "step5_verification": {
-      "status": "pending",
-      "note": "Sandbox has no NVIDIA GPU and cannot run Colab; verification = dependency resolution check, notebook JSON validity, python syntax compile of all cell code, Gradio Blocks construction smoke-test, weight URL 200-checks, secret scan. GPU end-to-end run must happen on first Colab execution."
+      "status": "done",
+      "note": "Sandbox has no NVIDIA GPU and cannot run Colab; verification = dependency resolution check, notebook JSON validity, python syntax compile of all cell code, Gradio Blocks construction smoke-test, weight URL 200-checks, secret scan. GPU end-to-end run must happen on first Colab execution.",
+      "performed": [
+        "ipynb JSON validity + python ast.parse of Cell A and proteus_core.py: OK",
+        "secret scan of deliverables: no HF token, no GitHub PAT present",
+        "Gradio 6.28 Blocks UI construction smoke test (all component types used): OK",
+        "gr.Progress(track_tqdm=) signature confirmed",
+        "all 5 weight files downloaded and sizes verified against HEAD metadata (4x TRT exact match; ONNX 82,532,791 bytes = 78.7MB)",
+        "release asset upload verified by GitHub API (browser_download_url per asset)",
+        "NOTE: sandbox has no NVIDIA GPU/Colab runtime -> TensorRT engine execution and end-to-end video render verified on first Colab run; all download URLs return 200 and code paths are 1:1 with the original working Cell 2"
+      ]
     },
     "step6_github_actions_research": {
       "status": "done",
