@@ -1,5 +1,7 @@
 # MotionSalt-Upscaler
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/motionssalt/MotionSalt-Upscaler/blob/main/MotionSalt_Upscaler.ipynb)
+
 Anime / video upscaling in Google Colab with a one-click Gradio UI — **2× super-resolution** with quality presets, per-pass detail/noise/halo/sharpen controls, and multiple pro encoders (x264, x265 8/10-bit, ProRes 4444 12-bit, FFV1 16-bit lossless).
 
 ## Credit & origin
@@ -17,7 +19,7 @@ MotionSalt's contribution is limited to:
 
 ## Usage
 
-1. Open [`MotionSalt_Upscaler.ipynb`](MotionSalt_Upscaler.ipynb) in Google Colab (GPU runtime: *Runtime → Change runtime type → GPU*).
+1. [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/motionssalt/MotionSalt-Upscaler/blob/main/MotionSalt_Upscaler.ipynb) — opens the notebook directly in Google Colab (https://colab.research.google.com/github/motionssalt/MotionSalt-Upscaler/blob/main/MotionSalt_Upscaler.ipynb). Select a GPU runtime: *Runtime → Change runtime type → GPU*.
 2. Run the single code cell. It installs dependencies, downloads the model weights from this repo's [Releases](../../releases), and launches the UI.
 3. The cell prints both an inline UI and a public `*.gradio.live` link — the public link opens the same interface full-screen in a new tab while it keeps using the Colab GPU in the background.
 4. Upload a video **or** paste a direct video URL, adjust parameters, press **Run**.

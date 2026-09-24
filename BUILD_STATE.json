@@ -2,7 +2,7 @@
   "project": "MotionSalt-Upscaler",
   "repo": "https://github.com/motionssalt/MotionSalt-Upscaler",
   "last_updated_utc": "2026-09-24",
-  "current_step": "complete",
+  "current_step": "update_1_in_progress",
   "steps": {
     "step1_inventory": {
       "status": "done",
@@ -152,5 +152,21 @@
   "errors": [
     "7z 23.01 could not extract RAR5 'Unsupported Method' - resolved with bsdtar",
     "Dropbox HEAD requests do not return content-length (302 chains into dl.dropboxusercontent) - sizes for TRT taken from HF x-linked-size header; ONNX size measured post-download"
-  ]
+  ],
+  "update_1": {
+    "date_utc": "2026-09-24",
+    "summary": "Two requested fixes: (1) README must deep-link to Colab instead of the raw .ipynb file; (2) investigate + fix slow startup vs original Proteus V3 Cell 1 (HF pip-cache trick) without borrowing credentials; plus full step logging and real progress bars in the setup cell.",
+    "fix1_colab_link": {
+      "status": "done",
+      "found": "README.md Usage step 1 linked the notebook via a repo-relative path (MotionSalt_Upscaler.ipynb), which GitHub renders as the raw JSON notebook view. Audit of the whole repo (README, proteus_core.py, notebook markdown cells) showed this was the ONLY raw-file link — no badge existed and the notebook's own markdown cells contain no self-links.",
+      "change": "Replaced the relative link with the Colab open URL https://colab.research.google.com/github/motionssalt/MotionSalt-Upscaler/blob/main/MotionSalt_Upscaler.ipynb and added an 'Open In Colab' badge at the top of the README.",
+      "reasoning": "colab.research.google.com/github/<org>/<repo>/blob/<branch>/<path> is GitHub's canonical Colab deep-link; a click opens the notebook in Colab instead of showing raw JSON."
+    },
+    "fix2_startup_speed": {
+      "status": "in_progress"
+    },
+    "logging_progress": {
+      "status": "in_progress"
+    }
+  }
 }
