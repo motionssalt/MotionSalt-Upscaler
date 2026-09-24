@@ -1,0 +1,93 @@
+{
+  "project": "MotionSalt-Upscaler",
+  "repo": "https://github.com/motionssalt/MotionSalt-Upscaler",
+  "last_updated_utc": "2026-09-24",
+  "current_step": "step3_repo_files",
+  "steps": {
+    "step1_inventory": {
+      "status": "done",
+      "extraction": "RAR5 with unsupported method for 7z 23.01; extracted successfully with bsdtar (libarchive-tools)",
+      "source_files": {
+        "Cell 1 V15.5.txt": "12354 bytes - setup cell, HF pip-cache restore + TensorRT engine download",
+        "Cell 2 V15.5.txt": "77982 bytes, 1614 lines - full inference pipeline (TensorRT primary, ONNX Runtime fallback incl. CPUExecutionProvider)",
+        "Proteus V3 Models Links For All GPU.txt": "263 bytes - 2 Dropbox links (fp32 2x ONNX, fp32 1x TRT)"
+      },
+      "parameters_exposed_by_cell2": {
+        "INPUT_PATH": "string (video or image file)",
+        "SCALE": ["1x", "2x"],
+        "Quality_Preset": ["Custom", "V1 Anime 1 Pass", "V2 Anime 2 Pass", "V3 Anime High Quality 2 Pass"],
+        "Upscaling_Speed_Up": ["ON (FP16)", "OFF (FP32)"],
+        "Anti_Alias_Deblur": "slider -100..100 default 50",
+        "ReduceNoise": "slider 0..100 default 17",
+        "RecoverDetails": "slider 0..100 default 100",
+        "Dehalo": "slider 0..100 default 10",
+        "Sharpen": "slider 0..100 default 20",
+        "RevertCompression": "slider 0..100 default 100",
+        "Recover_Original_Details": "slider 0..100 default 0",
+        "Input_Video_Resolution": ["1080p", "1440p", "2160p", "No Resize"],
+        "Input_Image_Resolution": ["1080p", "1440p", "2160p", "No Resize"],
+        "Output_Video_Resize": ["Original AI Output", "1080p HD", "1440p 2K", "2160p 4K"],
+        "Image_Format": ["PNG 8bit", "PNG 16bit", "TIFF 10bit", "TIFF 12bit", "TIFF 16bit"],
+        "Encoder": ["x264 8bit", "x265 8bit", "x265 10bit", "ProRes 4444 12bit", "FFV1 16bit Lossless"],
+        "Save_Frames": ["ON", "OFF"],
+        "Quality": "slider 0..51 default 16",
+        "Auto_Download": ["ON", "OFF"]
+      },
+      "hardcoded_in_cell2": "IMAGE_PASSES=3, VIDEO_FIRST_PASSES=3, PREFLIGHT=10 warmup frames, TILE 576x672, OVERLAP=192, input channels {1x:15, 2x:24}, temporal processing always ON",
+      "weight_sizes_bytes": {
+        "prob-v3-fgnet-fp32-576x672-1x.trt": 95312380,
+        "prob-v3-fgnet-fp32-576x672-2x.trt": 140093244,
+        "prob-v3-fgnet-fp16-576x672-1x.trt": 27508252,
+        "prob-v3-fgnet-fp16-576x672-2x.trt": 42208212,
+        "prob-v3-fgnet-fp32-576x672-2x.onnx": "Dropbox HEAD does not expose size; measured after download"
+      },
+      "credential_scan": "Only embedded credential is the original creator's HF read-only token in Cell 1 (hf_...). It is NOT reused, committed, or referenced anywhere in this repo. HF bucket URLs for .trt engines and Dropbox links are public and tokenless. No other secrets found.",
+      "redistribution_flag": {
+        "observation": "Cell 2 title string contains 'Proteus V3 Premium Upscaler \"Private\"'",
+        "reasoning": "The creator publicly released these exact files as 'OpenSource Codes' (the RAR name), provides public tokenless weight links, and includes no license or no-redistribution notice anywhere in the files. 'Private' reads as a leftover label from the paid/premium era of the Colab. Judgment call: proceed with rebuild, give prominent credit, adopt permissive MIT for the MotionSalt-added code only, and flag here so the owner can react.",
+        "action": "proceeded; flagged in README credit section"
+      }
+    },
+    "step2_weight_hosting": {
+      "status": "in_progress",
+      "decision": "GitHub Release assets. Largest file is 140MB (fp32 2x TRT) - far under the 2GB per-asset Release limit, and over the 100MB git hard-block, so Releases are the correct host (not git, not LFS).",
+      "sources": "4x .trt mirrored from the public HF bucket (legend2008/proteus-v3-backup, tokenless); fp32 2x .onnx mirrored from the original public Dropbox link",
+      "release_tag": "v15.5-weights",
+      "asset_urls": "PENDING - filled after upload completes"
+    },
+    "step3_repo": {
+      "status": "in_progress",
+      "repo_url": "https://github.com/motionssalt/MotionSalt-Upscaler",
+      "visibility": "public",
+      "license": "MIT",
+      "license_reasoning": "Original files contain no explicit license. MIT chosen as permissive default for MotionSalt-added code; original method/code credited to the original Proteus V3 creator (HF user legend2008). Flagged in README.",
+      "original_creator_link": "https://huggingface.co/legend2008 (only discoverable attribution: HF dataset legend2008/kzm-cache-v4 and bucket legend2008/proteus-v3-backup in Cell 1)"
+    },
+    "step4_notebook": {
+      "status": "pending",
+      "temp_host_choice": {
+        "primary": "litterbox.catbox.moe (catbox temp host)",
+        "fallback": "tmpfiles.org API",
+        "reasoning": "Probed at build time 2026-09-24: litterbox anonymous API upload succeeded (returned https://litter.catbox.moe/ URL, 72h expiry, 1GB limit, no key). tmpfiles.org API also live (1h-60min retention, extension required). 0x0.st and transfer.sh did not respond; file.io redirects/deprecated."
+      }
+    },
+    "step5_verification": {
+      "status": "pending",
+      "note": "Sandbox has no NVIDIA GPU and cannot run Colab; verification = dependency resolution check, notebook JSON validity, python syntax compile of all cell code, Gradio Blocks construction smoke-test, weight URL 200-checks, secret scan. GPU end-to-end run must happen on first Colab execution."
+    },
+    "step6_github_actions_research": {
+      "status": "done",
+      "findings": {
+        "can_model_run_cpu_only": "Partially YES. The .trt TensorRT engines CANNOT run on CPU at all (TensorRT requires an NVIDIA GPU). However Cell 2 ships a complete ONNX Runtime fallback path that explicitly supports CPUExecutionProvider, and the fp32 2x ONNX model exists (Dropbox link). So CPU-only inference is technically possible via onnxruntime + the ONNX weight only (2x, FP32).",
+        "encoders_blocker": "Cell 2's x264/x265 paths use h264_nvenc / hevc_nvenc - NVIDIA hardware encoders that hard-fail on a CPU-only runner. ProRes (prores_ks) and FFV1 are CPU encoders and would work. A GitHub Actions version would need the encoder mapped to libx264/libx265 (or ProRes/FFV1) - a small code change but mandatory.",
+        "runner_limits": "GitHub-hosted Linux runner: 4 vCPU, 16 GB RAM, ~14 GB SSD, 6-hour max job runtime, 2 GB artifact/file limits on releases. The 24-channel tiled CNN at 576x672 tiles on 4 CPU cores would plausibly take tens of seconds to minutes PER FRAME - a 10s 24fps clip (240 frames, 3 first-frame passes + temporal) could exceed the 6h job limit. Input must also be tiny (1080p pre-resize helps but 2x output of 1080p = 4K frames in RAM).",
+        "feasibility_verdict": "Technically feasible for very short/small test clips (proof-of-pipeline), NOT practical for real videos. Complexity: moderate (rewrite setup cell for CPU-only pip, swap NVENC->libx264/libx265, download ONNX from the Release, upload result as workflow artifact). Recommendation: keep Colab GPU as the product; Actions version only as a demo/smoke-test.",
+        "action": "research only - no workflow files created, per instructions"
+      }
+    }
+  },
+  "errors": [
+    "7z 23.01 could not extract RAR5 'Unsupported Method' - resolved with bsdtar",
+    "Dropbox HEAD requests do not return content-length (302 chains into dl.dropboxusercontent) - sizes for TRT taken from HF x-linked-size header; ONNX size measured post-download"
+  ]
+}
