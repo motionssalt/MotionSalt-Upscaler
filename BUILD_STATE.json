@@ -284,5 +284,37 @@
   ],
   "unchanged_and_reverified": "HF dataset/token wiring (motionssalt read-only token, split form), small ordered pip groups, pycuda-last-with-verbose, 5-way parallel weight downloads + tqdm bar, per-frame Gradio progress, TRT->ONNX auto-fallback and per-thread CUDA context fix in proteus_core.py — all still intact.",
   "verification": "Sandbox: all 6 edit anchors matched exactly once; cell ast.parse OK; notebook JSON round-trip valid; live HF dataset tree re-checked (cu13 wheels present and matched by the ignore pattern). No GPU/Colab here — the next Colab run is the live test, and it can no longer fail silently: whichever step is slow will announce itself every 15 seconds."
+ },
+ "update_6": {
+  "date_utc": "2026-09-24",
+  "summary": "User report: 2-pass presets (V2/V3) crash at Pass 2 'Engine warmup' with TypeError: '>' not supported between instances of 'int' and 'NoneType', right after Pass 2 logs frames=None for the Pass 1 intermediate .mkv.",
+  "root_cause": {
+   "chain": [
+    "1) get_media_info() reads the frame count ONLY from ffprobe's stream nb_frames field.",
+    "2) The Pass 1 intermediate is FFV1 16-bit lossless in a Matroska (.mkv) container. Matroska stores NO per-stream frame count, so nb_frames comes back empty and get_media_info returned tf=None for Pass 2's input. Original uploads (mp4 etc.) DO store nb_frames, which is why Pass 1 always showed a real count and Pass 2 alone printed frames=None.",
+    "3) The processing loop backfills tf once decoding starts (if tf is None or fi > tf: tf = fi), so after frame 1 tf becomes the int 1.",
+    "4) The tqdm progress bar, however, was created BEFORE the loop with total=tf while tf was still None, so _pbar.total stayed None.",
+    "5) The guard 'if tf and fi > _pbar.total:' then passed (tf=1 truthy) and evaluated '1 > None' -> TypeError. It fires after frame 1 is processed; the per-frame message goes to the progress bar (not the log box), so the visible log shows the crash immediately after 'Engine warmup...' — matching the report exactly."
+   ],
+   "why_only_pass2": "Pass 1's input is the original upload (mp4/mov etc. with a stored nb_frames), so tf was an int and _pbar.total was never None. Pass 2 is the only path whose input is the pipeline's own FFV1/MKV intermediate — the one container family with no stored frame count.",
+   "exact_crash_line": "proteus_core.py process_video_pass: 'if tf and fi > _pbar.total:' with _pbar.total=None"
+  },
+  "was_pass2_tested_before": "No. BUILD_STATE step5 verification was 'dependency resolution, notebook JSON validity, syntax compile, Gradio smoke-test, weight URL checks' only — no GPU/Colab here, and NO prior pass ever ran process_video_pass against a real Pass 1 FFV1 .mkv intermediate. The original Proteus Cell 2 read frames via OpenCV CAP_PROP_FRAME_COUNT (which counts/estimates for mkv), so the bug was introduced by the MotionSalt refactor to ffprobe nb_frames and went unnoticed because only original-upload inputs were ever exercised.",
+  "fix": [
+   "get_media_info: ffprobe now also requests stream/format duration. When nb_frames is absent (tf would be None) it estimates tf = round(container_duration x fps) and logs that it did so. Matroska stores a reliable segment duration, and the processing loop already self-corrects tf if an estimate is off (if tf is None or fi > tf: tf = fi). A full ffprobe -count_frames scan was deliberately NOT used: it decodes the entire 16-bit FFV1 intermediate (minutes of I/O) just to fill a progress-bar total.",
+   "process_video_pass loop: the bar-total guard now reads 'if _pbar.total is None or (tf and fi > _pbar.total): _pbar.total = tf if tf else fi' — it keys off _pbar.total itself, so fi can never be compared against None again even if a future container yields neither nb_frames nor duration.",
+   "If neither nb_frames nor duration is available, tf stays None, a WARNING is logged, and the pipeline continues with an indeterminate progress bar instead of crashing (message construction is already None-safe; only the bar guard was not)."
+  ],
+  "verification": {
+   "ffprobe_confirms_asymmetry": "orig.mp4 -> nb_frames=5; Pass-1-style ffv1/rgb48le .mkv -> nb_frames=N/A (reproduced the exact input asymmetry).",
+   "original_code_crash_reproduced": "git stash (pre-fix code) + real pass1 ffv1 .mkv -> process_video_pass crashed with the EXACT reported TypeError at the exact line, immediately after 'Engine warmup...'.",
+   "patched_pass2_completes": "Same file on patched code: get_media_info estimated tf=5 from duration, Pass 2 processed all frames and wrote a valid 32KB ffv1 output mkv.",
+   "full_two_pass_run_end_to_end": "Full run() on the 'V2 Anime 2 Pass' preset with a real (3-frame, 10fps, with audio) input: Pass 1 (FFV1 .mkv intermediate) -> lossless_resize_video -> Pass 2 reading the intermediate (log shows the new 'No stored frame count... estimated frames=3' fallback) -> remux. Final output MotionSalt.small_input_upscaled.mkv: ffv1 gbrp16le 384x384, 3 decoded frames, aac audio stream preserved, duration 0.323s, no temp/pass1 leftovers.",
+   "caveat": "Sandbox has no GPU/Colab and limited RAM, so the 576x672 tiled CNN pixel math could not be executed frame-after-frame here (ONNX session loads and single-frame inference verified separately; multi-frame real-model run OOM-killed in sandbox). End-to-end structure (both passes, both encoders, resize, remux, frame counts) verified with the model math stubbed; the per-frame AI math path is unchanged by this fix. The first Colab run remains the live GPU confirmation.",
+   "ast_parse": "proteus_core.py ast.parse OK"
+  },
+  "files_changed": [
+   "proteus_core.py"
+  ]
  }
 }

@@ -412,7 +412,7 @@ class MotionSaltUpscaler:
                     return w, h, 1.0, 1
                 raise RuntimeError(f"Failed to read image dimensions for {path}: {e}")
         r = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0',
-                            '-show_entries', 'stream=width,height,r_frame_rate,nb_frames:stream_tags=rotate',
+                            '-show_entries', 'stream=width,height,r_frame_rate,nb_frames,duration:stream_tags=rotate:format=duration',
                             '-of', 'json', path], capture_output=True, text=True, timeout=30)
         try:
             data = json.loads(r.stdout)
@@ -433,6 +433,34 @@ class MotionSaltUpscaler:
             fps = float(num) / float(den) if float(den) > 0 else 25.0
             tf_str = info.get('nb_frames', '0')
             tf = int(tf_str) if tf_str and tf_str.isdigit() and int(tf_str) > 0 else None
+            if tf is None:
+                # Some containers (notably Matroska — the Pass 1 FFV1 .mkv
+                # intermediate) store NO per-stream frame count, so nb_frames
+                # comes back empty where the original upload (mp4 etc.) had one.
+                # Fallback: estimate total frames from container duration x fps.
+                # Matroska stores a reliable segment duration, and the processing
+                # loop self-corrects tf if the estimate is off, so this is safe.
+                # (A full ffprobe -count_frames scan would be exact but requires
+                # decoding the entire 16-bit FFV1 intermediate — minutes of I/O
+                # for a progress-bar total.)
+                dur = None
+                for cand in (info.get('duration'),
+                             (data.get('format') or {}).get('duration')):
+                    try:
+                        if cand is not None and float(cand) > 0:
+                            dur = float(cand)
+                            break
+                    except (TypeError, ValueError):
+                        continue
+                if dur is not None and fps > 0:
+                    tf = max(1, int(round(dur * fps)))
+                    self.log(f"No stored frame count in this container; estimated "
+                             f"frames={tf} from duration {dur:.3f}s x {fps:.2f}fps "
+                             f"(total self-corrects during processing)")
+                else:
+                    self.log(f"WARNING: frame count unavailable for {path} and no "
+                             f"duration to estimate from — progress will run without "
+                             f"a total (processing itself is unaffected)")
             return w, h, fps, tf
         except (json.JSONDecodeError, KeyError, RuntimeError) as e:
             raise RuntimeError(f"ffprobe failed for {path}: {e}\nstderr: {r.stderr}")
@@ -836,8 +864,12 @@ class MotionSaltUpscaler:
                 if progress_cb:
                     progress_cb(msg)
                 if _pbar is not None:
-                    if tf and fi > _pbar.total:
-                        _pbar.total = fi
+                    # _pbar.total is None when the bar was created with tf=None
+                    # (container without a stored frame count). tf gets backfilled
+                    # to an int above, so guard on _pbar.total itself — never
+                    # compare fi > None.
+                    if _pbar.total is None or (tf and fi > _pbar.total):
+                        _pbar.total = tf if tf else fi
                     _pbar.update(1)
                     _pbar.set_postfix_str(f"{time.time()-t0:.2f}s/f" + (f" ETA {eta/60:.1f}m" if tf else ""))
         finally:
