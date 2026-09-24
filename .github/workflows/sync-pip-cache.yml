@@ -1,0 +1,37 @@
+name: Sync HF pip cache
+
+# One-shot / rerun-anytime job: copies any missing or size-mismatched files from the
+# original Proteus V3 pip cache (legend2008/kzm-cache-v4, public, read-only) into
+# MotionSalt's own dataset (motionssalt/proteus-v3-pip-cache), then verifies the copy
+# file-for-file (name + byte size) and fails the run if anything doesn't match.
+# The write token is provided via the encrypted repo secret HF_MIGRATION_TOKEN —
+# it is never stored in the repo or printed to logs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install HF client (with fast transfer)
+        run: pip install -U "huggingface_hub[hf_transfer]"
+
+      - name: Report free disk
+        run: df -h "$PWD"
+
+      - name: Sync missing/mismatched files
+        env:
+          HF_HUB_ENABLE_HF_TRANSFER: "1"
+          HF_MIGRATION_TOKEN: ${{ secrets.HF_MIGRATION_TOKEN }}
+        run: python .github/scripts/sync_hf_cache.py
