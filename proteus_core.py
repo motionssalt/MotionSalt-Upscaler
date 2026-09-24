@@ -19,11 +19,57 @@ except ImportError:
 
 try:
     import pycuda.driver as cuda
-    import pycuda.autoinit
     _HAS_PYCUDA = True
 except ImportError:
     cuda = None
     _HAS_PYCUDA = False
+
+
+# ── CUDA context management ──────────────────────────────────────────────────
+# Root cause of "explicit_context_dependent failed: invalid device context - no
+# currently active context?": this module previously imported pycuda.autoinit,
+# which binds the CUDA context to the IMPORTING thread. Gradio runs inference on
+# a worker thread, so every TensorRT call there executed with NO current context.
+# Fix: lazily create + push the device primary context on whichever thread
+# actually runs TensorRT (never autoinit at import time).
+_CUDA_CTX_HOLDER = {}
+
+
+def ensure_cuda_context(thread_key=None):
+    """Initialise CUDA and make a context current on the CALLING thread.
+    Returns True on success, False if CUDA/pycuda is unavailable."""
+    if not _HAS_PYCUDA:
+        return False
+    key = thread_key if thread_key is not None else threading.get_ident()
+    if key in _CUDA_CTX_HOLDER:
+        return True
+    try:
+        cuda.init()
+        try:
+            if cuda.Context.get_current() is not None:
+                _CUDA_CTX_HOLDER[key] = None  # context owned elsewhere; still fine
+                return True
+        except Exception:
+            pass
+        ctx = cuda.Device(0).retain_primary_context()
+        ctx.push()
+        _CUDA_CTX_HOLDER[key] = ctx
+        return True
+    except Exception:
+        return False
+
+
+def gpu_summary():
+    """Human-readable identity of the CURRENT GPU (for logs/diagnostics)."""
+    if not _HAS_PYCUDA:
+        return "unknown (pycuda missing)"
+    try:
+        cuda.init()
+        dev = cuda.Device(0)
+        cc = dev.compute_capability()
+        return f"{dev.name()} (CC {cc[0]}.{cc[1]})"
+    except Exception as e:
+        return f"unknown ({e})"
 
 
 class MotionSaltUpscaler:
@@ -180,74 +226,101 @@ class MotionSaltUpscaler:
                     break
 
         self.log(f"Loading model: {os.path.basename(self.MODEL_PATH)}")
+        self.log(f"Runtime GPU: {gpu_summary()}")
 
         if self.MODEL_IS_ONNX:
-            import onnxruntime as _ort
-            _providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if _HAS_CUDA else ['CPUExecutionProvider']
-            self.ort_sess = _ort.InferenceSession(self.MODEL_PATH, providers=_providers)
-            _input_meta = self.ort_sess.get_inputs()[0]
-            self.input_name = _input_meta.name
-            self.output_name = self.ort_sess.get_outputs()[0].name
-            input_shape = tuple(_input_meta.shape)
-            self.output_shape = tuple(self.ort_sess.get_outputs()[0].shape)
-            self.TILE_H, self.TILE_W = input_shape[1], input_shape[2]
-            self._USE_ORT = True
-            self.d_input = self.d_output = self.stream = self.context = self.engine = None
-        else:
-            TRT_LOGGER = trt.Logger(trt.Logger.INFO)
-            runtime = trt.Runtime(TRT_LOGGER)
-            with open(self.MODEL_PATH, 'rb') as f:
-                self.engine = runtime.deserialize_cuda_engine(f.read())
-            if self.engine is None:
-                # ONNX fallback
-                for _p in _CANDIDATE_PATHS:
-                    if _p.endswith('.onnx') and os.path.exists(_p):
-                        self.MODEL_PATH = _p
-                        self.MODEL_IS_ONNX = True
-                        break
-                if self.MODEL_IS_ONNX:
-                    import onnxruntime as _ort
-                    _providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if _HAS_CUDA else ['CPUExecutionProvider']
-                    self.ort_sess = _ort.InferenceSession(self.MODEL_PATH, providers=_providers)
-                    _input_meta = self.ort_sess.get_inputs()[0]
-                    self.input_name = _input_meta.name
-                    self.output_name = self.ort_sess.get_outputs()[0].name
-                    input_shape = tuple(_input_meta.shape)
-                    self.output_shape = tuple(self.ort_sess.get_outputs()[0].shape)
-                    self.TILE_H, self.TILE_W = input_shape[1], input_shape[2]
-                    self._USE_ORT = True
-                    self.d_input = self.d_output = self.stream = self.context = self.engine = None
-                else:
-                    raise RuntimeError("TRT engine failed AND no ONNX model found.")
+            self._init_onnx(_HAS_CUDA)
+            return
+
+        # ── TensorRT path (fast, but NOT portable) ───────────────────────────
+        # A .trt engine is compiled for ONE GPU architecture / driver / TRT
+        # version. Colab assigns different GPUs per session (T4, L4, A100…), so
+        # the engine must be validated against the CURRENT GPU. Strategy: make a
+        # CUDA context current on THIS thread, deserialize, then run a real
+        # smoke inference on zeros. ANY failure -> automatic ONNX fallback.
+        _onnx_path = next((_p for _p in _CANDIDATE_PATHS
+                           if _p.endswith('.onnx') and os.path.exists(_p)), None)
+        try:
+            if not _HAS_TRT:
+                raise RuntimeError("tensorrt python package not importable")
+            if not _HAS_CUDA:
+                raise RuntimeError("no CUDA GPU available in this session")
+            if not ensure_cuda_context():
+                raise RuntimeError("could not create a current CUDA context on this thread")
+            self._init_trt_engine()
+            self.log(f"TRT engine loaded + smoke-tested on {gpu_summary()}. "
+                     f"Tile {self.TILE_H}x{self.TILE_W}, scale {self.SCALE}x, "
+                     f"{os.path.getsize(self.MODEL_PATH)/1048576:.1f} MB")
+            return
+        except Exception as _trt_err:
+            self.log(f"WARNING: TensorRT path unusable on this GPU/session: {_trt_err}")
+            if _onnx_path is None:
+                raise
+            self.log(f"-> Auto-fallback to portable ONNX model: {os.path.basename(_onnx_path)}")
+            self.MODEL_PATH = _onnx_path
+            self.MODEL_IS_ONNX = True
+            self._init_onnx(_HAS_CUDA)
+
+    def _init_onnx(self, has_cuda):
+        import onnxruntime as _ort
+        _providers = (['CUDAExecutionProvider', 'CPUExecutionProvider']
+                      if has_cuda else ['CPUExecutionProvider'])
+        self.ort_sess = _ort.InferenceSession(self.MODEL_PATH, providers=_providers)
+        _active = self.ort_sess.get_providers()
+        _input_meta = self.ort_sess.get_inputs()[0]
+        self.input_name = _input_meta.name
+        self.output_name = self.ort_sess.get_outputs()[0].name
+        input_shape = tuple(_input_meta.shape)
+        self.output_shape = tuple(self.ort_sess.get_outputs()[0].shape)
+        self.TILE_H, self.TILE_W = input_shape[1], input_shape[2]
+        self._USE_ORT = True
+        self.d_input = self.d_output = self.stream = self.context = self.engine = None
+        self.log(f"ONNX session ready (providers: {', '.join(_active)}). "
+                 f"Tile {self.TILE_H}x{self.TILE_W}")
+
+    def _init_trt_engine(self):
+        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+        runtime = trt.Runtime(TRT_LOGGER)
+        with open(self.MODEL_PATH, 'rb') as f:
+            self.engine = runtime.deserialize_cuda_engine(f.read())
+        if self.engine is None:
+            raise RuntimeError("engine failed to deserialize (built for a different GPU/TRT version)")
+        self.context = self.engine.create_execution_context()
+        input_shape = output_shape = None
+        _io_dtype = None
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            mode = self.engine.get_tensor_mode(name)
+            shape = self.engine.get_tensor_shape(name)
+            dtype = self.engine.get_tensor_dtype(name)
+            if mode == trt.TensorIOMode.INPUT:
+                self.input_name, input_shape, _io_dtype = name, tuple(shape), dtype
             else:
-                self.context = self.engine.create_execution_context()
-                input_shape = output_shape = None
-                _io_dtype = None
-                for i in range(self.engine.num_io_tensors):
-                    name = self.engine.get_tensor_name(i)
-                    mode = self.engine.get_tensor_mode(name)
-                    shape = self.engine.get_tensor_shape(name)
-                    dtype = self.engine.get_tensor_dtype(name)
-                    if mode == trt.TensorIOMode.INPUT:
-                        self.input_name, input_shape, _io_dtype = name, tuple(shape), dtype
-                    else:
-                        self.output_name, output_shape = name, tuple(shape)
-                self.output_shape = output_shape
-                self.TILE_H, self.TILE_W = input_shape[1], input_shape[2]
-                _actual_ch = input_shape[-1]
-                _detected_scale = {15: 1, 24: 2}.get(_actual_ch, self.SCALE)
-                if _detected_scale != self.SCALE:
-                    self.log(f"Engine is {_detected_scale}x but SCALE={self.SCALE}x — auto-correcting.")
-                self.SCALE = _detected_scale
-                self._NP_IO_DTYPE = np.float16 if _io_dtype == trt.DataType.HALF else np.float32
-                _IO_ITEMSIZE = np.dtype(self._NP_IO_DTYPE).itemsize
-                self.d_input = cuda.mem_alloc(trt.volume(input_shape) * _IO_ITEMSIZE)
-                self.d_output = cuda.mem_alloc(trt.volume(output_shape) * _IO_ITEMSIZE)
-                self.stream = cuda.Stream()
-                self.context.set_tensor_address(self.input_name, int(self.d_input))
-                self.context.set_tensor_address(self.output_name, int(self.d_output))
-                self.log(f"TRT engine loaded. Tile {self.TILE_H}x{self.TILE_W}, scale {self.SCALE}x, "
-                         f"{os.path.getsize(self.MODEL_PATH)/1048576:.1f} MB")
+                self.output_name, output_shape = name, tuple(shape)
+        self.output_shape = output_shape
+        self.TILE_H, self.TILE_W = input_shape[1], input_shape[2]
+        _actual_ch = input_shape[-1]
+        _detected_scale = {15: 1, 24: 2}.get(_actual_ch, self.SCALE)
+        if _detected_scale != self.SCALE:
+            self.log(f"Engine is {_detected_scale}x but SCALE={self.SCALE}x — auto-correcting.")
+        self.SCALE = _detected_scale
+        self._NP_IO_DTYPE = np.float16 if _io_dtype == trt.DataType.HALF else np.float32
+        _IO_ITEMSIZE = np.dtype(self._NP_IO_DTYPE).itemsize
+        self.d_input = cuda.mem_alloc(trt.volume(input_shape) * _IO_ITEMSIZE)
+        self.d_output = cuda.mem_alloc(trt.volume(output_shape) * _IO_ITEMSIZE)
+        self.stream = cuda.Stream()
+        self.context.set_tensor_address(self.input_name, int(self.d_input))
+        self.context.set_tensor_address(self.output_name, int(self.d_output))
+        # Smoke-run one real inference on zeros: proves context+engine+GPU work
+        # together NOW (at load time) instead of failing mid-video.
+        _smoke_in = np.zeros(tuple(input_shape), dtype=self._NP_IO_DTYPE)
+        cuda.memcpy_htod_async(self.d_input, _smoke_in, self.stream)
+        self.context.execute_async_v3(self.stream.handle)
+        _smoke_out = np.empty(self.output_shape, dtype=self._NP_IO_DTYPE)
+        cuda.memcpy_dtoh_async(_smoke_out, self.d_output, self.stream)
+        self.stream.synchronize()
+        if not np.isfinite(_smoke_out).all():
+            raise RuntimeError("smoke inference produced non-finite output")
 
     # ------------------------------------------------------------------ params
     def set_pass_params(self, slider_dict):
@@ -705,8 +778,19 @@ class MotionSaltUpscaler:
                     break
                 wf.append(f)
             pre_reader.close()
+            _wbar = None
+            try:
+                from tqdm.auto import tqdm as _tqdm_warm
+                _wbar = _tqdm_warm(total=len(wf[:self.PREFLIGHT]), desc=f"{pass_name} warmup",
+                                   unit="frame", leave=False, ncols=100)
+            except Exception:
+                _wbar = None
             for w in wf[:self.PREFLIGHT]:
                 self.process_frame(w, is_warmup=True)
+                if _wbar is not None:
+                    _wbar.update(1)
+            if _wbar is not None:
+                _wbar.close()
             self.prev_lr = None
             self.prev_hr = None
 
@@ -714,6 +798,13 @@ class MotionSaltUpscaler:
         fi = 0
         st0 = time.time()
         stopped = False
+        _pbar = None
+        try:
+            from tqdm.auto import tqdm as _tqdm_cls
+            _pbar = _tqdm_cls(total=tf, desc=pass_name, unit="frame", ncols=100,
+                              mininterval=0.5)
+        except Exception:
+            _pbar = None
         try:
             while True:
                 frame = reader.read()
@@ -744,7 +835,14 @@ class MotionSaltUpscaler:
                       f"{pass_name} frame {fi} {time.time()-t0:.2f}s/f"
                 if progress_cb:
                     progress_cb(msg)
+                if _pbar is not None:
+                    if tf and fi > _pbar.total:
+                        _pbar.total = fi
+                    _pbar.update(1)
+                    _pbar.set_postfix_str(f"{time.time()-t0:.2f}s/f" + (f" ETA {eta/60:.1f}m" if tf else ""))
         finally:
+            if _pbar is not None:
+                _pbar.close()
             try:
                 reader.close()
             except Exception:

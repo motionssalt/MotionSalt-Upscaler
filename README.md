@@ -12,7 +12,7 @@ MotionSalt's contribution is limited to:
 
 - a new **Gradio `Blocks` web interface** (the original shipped as bare Colab form fields),
 - **permanent re-hosting** of the model weights as GitHub Release assets (the original relied on Dropbox / HF bucket links surviving),
-- removal of a hardcoded Hugging Face token from the original setup cell (it was only a pip-cache speed optimization; no token of any kind is required or present here),
+- **self-hosted startup pip cache**: the original's speed trick (a pip wheel cache hosted as a Hugging Face dataset) is preserved but now points at MotionSalt's **own** dataset [`motionssalt/proteus-v3-pip-cache`](https://huggingface.co/datasets/motionssalt/proteus-v3-pip-cache) with MotionSalt's **own read-only** token — zero dependency on the original creator's HF account,
 - this documentation and packaging.
 
 > ⚖️ **License note:** the original released files contain **no explicit license**. They were published publicly as "OpenSource Codes" with public, tokenless weight links, so this fork proceeds in good faith under the **MIT License**, which covers MotionSalt's added code. Rights to the original Proteus V3 model and method remain with the original creator; if you are the creator and want anything changed or removed, open an issue and it will be addressed promptly.
@@ -55,6 +55,8 @@ Mirrored as GitHub Release assets (tag `v15.5-weights`) so the project no longer
 - `prob-v3-fgnet-fp16-576x672-1x.trt` / `-2x.trt` — TensorRT FP16 engines (fast path)
 - `prob-v3-fgnet-fp32-576x672-1x.trt` / `-2x.trt` — TensorRT FP32 engines (precision path)
 - `prob-v3-fgnet-fp32-576x672-2x.onnx` — ONNX FP32 (CPU/portable fallback)
+
+> **GPU compatibility:** `.trt` engines only run on a GPU matching the one they were compiled for, and Colab assigns different GPUs per session (T4, L4, A100…). At model-load time the notebook initializes a CUDA context on the inference thread and **smoke-tests the TensorRT engine on the actual GPU**; if anything fails, it automatically falls back to the portable `.onnx` model via ONNX Runtime (CUDA/CPU execution providers). No manual choice needed.
 
 ## License
 
