@@ -267,5 +267,22 @@
   ],
   "verification": "Sandbox: all 6 edit anchors matched exactly once; notebook JSON round-trip valid; cell source ast.parse OK. No GPU/Colab here, so the live end-to-end confirmation is the user's next Colab run; the cell now prints enough markers that any future stall localizes to an exact sub-step.",
   "notes": "HF cache wiring (motionssalt/proteus-v3-pip-cache + MotionSalt read-only token) unchanged and reconfirmed identical in mechanism to the original Cell 1. Fixes from update_2 (TensorRT context init, auto ONNX fallback, per-frame progress) untouched."
+ },
+ "update_5": {
+  "date_utc": "2026-09-24",
+  "summary": "User report (3rd hang): even after update_4 the setup cell sat at [1/4] for 20+ min and never initialized; original Colab loaded in <5 min and even the pre-cache rebuild eventually loaded. Root-caused against the original Cell 1 from the RAR + the live HF dataset tree.",
+  "diagnosis": {
+   "primary": "The [1/4] quiet window is the snapshot_download of the pip cache. update_3 made the cache COMPLETE (53/53) — which also made it ~8+ GB, including tensorrt_cu13_libs (3.73 GB, confirmed live at kzm_cache_v4/wheels/... on motionssalt/proteus-v3-pip-cache), a wheel this notebook NEVER installs (Cell A pins tensorrt-cu12). huggingface_hub's default Python downloader pulls big LFS files single-stream; on a throttled Colab<->HF link the two giant wheels alone can run 15+ min with only per-file tqdm bars — reads exactly like a dead hang after the small files finish.",
+   "secondary": "The heaviest probes printed nothing around them: the first 'import tensorrt' pages GBs of CUDA/TRT shared libraries into memory (tens of seconds), first 'import gradio' similar, and pip's extraction of the 4.3 GB cu12-libs wheel shows only a spinner for minutes.",
+   "honest_residual_unknown": "Why the ORIGINAL Cell 1 (same ~8 GB dataset, same default downloader) felt sub-5-min to the user cannot be proven from a sandbox — long-lived edge-cache warmth on legend2008's public dataset vs a brand-new dataset is the most plausible factor. Rather than explain it away, this pass removes the dead download, accelerates the rest, and makes every silent window self-reporting so any future stall names itself."
+  },
+  "fix": [
+   "Cache restore: ignore_patterns=['*cu13*'] — drops ~3.7 GB of dead weight from every fresh runtime.",
+   "hf_transfer enabled (env var set BEFORE huggingface_hub import; huggingface_hub popped from sys.modules to force the env re-read) with graceful fallback to the standard downloader if hf_transfer cannot be installed.",
+   "Heartbeat daemon thread: every long blocking step (cache restore, every pip group incl. the 4.3 GB wheel extraction, tensorrt/gradio first imports) prints '... still working (Xs elapsed)' every 15s. Additive only — no output captured or suppressed (update_1's logging/visibility requirement retained).",
+   "Pre-probe marker lines with realistic time expectations for the heavy imports."
+  ],
+  "unchanged_and_reverified": "HF dataset/token wiring (motionssalt read-only token, split form), small ordered pip groups, pycuda-last-with-verbose, 5-way parallel weight downloads + tqdm bar, per-frame Gradio progress, TRT->ONNX auto-fallback and per-thread CUDA context fix in proteus_core.py — all still intact.",
+  "verification": "Sandbox: all 6 edit anchors matched exactly once; cell ast.parse OK; notebook JSON round-trip valid; live HF dataset tree re-checked (cu13 wheels present and matched by the ignore pattern). No GPU/Colab here — the next Colab run is the live test, and it can no longer fail silently: whichever step is slow will announce itself every 15 seconds."
  }
 }
