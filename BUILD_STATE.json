@@ -244,7 +244,9 @@
    ],
    "secret_handling": "HF write token stored ONLY as the encrypted repo secret HF_MIGRATION_TOKEN, created via the GitHub Actions secrets API (libsodium sealed with the repo public key). The token is never written to any repo file, never printed in logs, and is read by the workflow from the secrets context. Reasoning: Actions secrets are the standard, auditable way to keep credentials out of the repo while letting CI use them."
   },
-  "fix2_hf_cache_migration_status": "pending_workflow_run - workflow dispatched; completion + verification result to be recorded when the run finishes",
-  "notes": "Source dataset confirmed public (53 files). Original Cell 1 mechanism reconfirmed from the RAR: HF-dataset-hosted pip http-v2 cache + wheels dir, restored with snapshot_download and used via pip --cache-dir. Notebook wiring (Cell A -> motionssalt/proteus-v3-pip-cache, MotionSalt read-only runtime token) unchanged and already correct from update_2."
+  "fix2_hf_cache_migration_status": "done - workflow run 36052187245 completed success: 2 missing tensorrt libs wheels synced, final verification passed (missing=0, size_mismatch=0); dest dataset now 53/53 files matching source legend2008/kzm-cache-v4",
+  "notes": "Source dataset confirmed public (53 files). Original Cell 1 mechanism reconfirmed from the RAR: HF-dataset-hosted pip http-v2 cache + wheels dir, restored with snapshot_download and used via pip --cache-dir. Notebook wiring (Cell A -> motionssalt/proteus-v3-pip-cache, MotionSalt read-only runtime token) unchanged and already correct from update_2.",
+  "run_result": "GitHub Actions run id 36052187245, conclusion=success, ~60s end-to-end on GitHub-hosted runner with hf_transfer (vs sandbox which could not complete these transfers at all)",
+  "cleanup": "HF_MIGRATION_TOKEN Actions secret retained in repo for future re-runs of sync-pip-cache.yml; workflow is idempotent (0 files to sync when already in sync) and safe to re-dispatch anytime"
  }
 }
