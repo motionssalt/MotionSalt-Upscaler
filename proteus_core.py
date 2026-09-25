@@ -115,6 +115,7 @@ class MotionSaltUpscaler:
                  input_video_resolution="1080p", input_image_resolution="1440p",
                  output_video_resize="1440p 2K", image_format="PNG 8bit",
                  encoder="x265 8bit", save_frames="OFF", quality=16,
+                 multipass="OFF", custom_pass2=None,
                  verbose=True, log=print):
         self.log = log
         self.verbose = verbose
@@ -144,10 +145,13 @@ class MotionSaltUpscaler:
                                   for e in ['.jpg', '.png', '.jpeg', '.bmp', '.webp', '.tiff', '.tif'])
 
         # Preset / slider resolution (identical semantics to original Cell 2)
+        self.MULTIPASS = (multipass is True) or (str(multipass).strip().upper()
+                          in ("ON", "TRUE", "1", "YES"))
         if quality_preset != "Custom" and quality_preset in self.QUALITY_PRESETS:
             _preset = self.QUALITY_PRESETS[quality_preset]
             self.SCALE = _preset["scale"]
             self.PASS_COUNT = _preset["passes"]
+            self.MULTIPASS = self.PASS_COUNT > 1
             if self.PASS_COUNT == 1:
                 self.PASS1_SLIDERS = {
                     "anti_alias_deblur": _preset["anti_alias_deblur"],
@@ -163,7 +167,9 @@ class MotionSaltUpscaler:
                 self.PASS1_SLIDERS = dict(_preset["pass1"])
                 self.PASS2_SLIDERS = dict(_preset["pass2"])
         else:
-            self.PASS_COUNT = 1
+            # Custom: multipass is user-controlled and drives the exact same
+            # two-pass structure the built-in 2-pass presets use.
+            self.PASS_COUNT = 2 if self.MULTIPASS else 1
             self.PASS1_SLIDERS = {
                 "anti_alias_deblur": self.Anti_Alias_Deblur,
                 "reduce_noise": self.ReduceNoise,
@@ -173,7 +179,16 @@ class MotionSaltUpscaler:
                 "revert_compression": self.RevertCompression,
                 "recover_original": self.Recover_Original_Details,
             }
-            self.PASS2_SLIDERS = None
+            if self.PASS_COUNT == 2:
+                # Pass 2 defaults to the same slider values unless the caller
+                # supplies explicit pass-2 overrides (preset-style parity).
+                _p2 = dict(self.PASS1_SLIDERS)
+                if custom_pass2:
+                    _p2.update({k: int(v) for k, v in custom_pass2.items()
+                                if v is not None})
+                self.PASS2_SLIDERS = _p2
+            else:
+                self.PASS2_SLIDERS = None
 
         self.INJECT_OVERLAY = {}
         self.preBlur_val = self.noise_val = self.details_val = 0.0

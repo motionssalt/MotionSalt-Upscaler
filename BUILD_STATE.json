@@ -1,7 +1,7 @@
 {
  "project": "MotionSalt-Upscaler",
  "repo": "https://github.com/motionssalt/MotionSalt-Upscaler",
- "last_updated_utc": "2026-09-24",
+ "last_updated_utc": "2026-09-25T08:34:27Z",
  "current_step": "complete",
  "steps": {
   "step1_inventory": {
@@ -316,5 +316,37 @@
   "files_changed": [
    "proteus_core.py"
   ]
+ },
+ "update_7": {
+  "date_utc": "2026-09-25",
+  "summary": "Three user-reported gaps fixed: (1) no multipass control under the Custom preset, (2) processing logs not visible inside the Gradio tab, (3) temp download link had no copy button.",
+  "fix_1_custom_multipass": {
+   "root_cause": "proteus_core.MotionSaltUpscaler.__init__ hard-coded self.PASS_COUNT = 1 in the non-preset ('Custom') branch and set PASS2_SLIDERS = None, so the already-working two-pass structure (Pass 1 -> FFV1 16-bit lossless intermediate, lossless resize, Pass 2 -> final encode) was reachable only through the V2/V3 preset dicts. The UI had no toggle at all.",
+   "original_behaviour_checked": "QUALITY_PRESETS in proteus_core (ported from Cell 2 V15.5) expose multipass only as a per-preset 'passes' count with separate pass1/pass2 slider dicts; there was never a standalone user toggle in the original, so parity here means exposing the same pass structure plus optional per-pass slider values.",
+   "change": [
+    "proteus_core.__init__ takes multipass='OFF' and custom_pass2=None. Custom branch: PASS_COUNT = 2 when multipass is on; PASS2_SLIDERS defaults to a copy of the Pass 1 sliders, overridden per-key by custom_pass2 when supplied.",
+    "Built-in presets are unaffected: self.MULTIPASS is forced to (PASS_COUNT > 1) from the preset dict, so the checkbox cannot turn a 1-pass preset into 2 passes or vice versa.",
+    "Notebook UI: 'Multipass (2 passes) — Custom preset' checkbox plus a collapsible 'Pass 2 sliders' accordion (7 sliders) that becomes visible only when Preset == Custom and multipass is checked."
+   ],
+   "verification": "Config matrix asserted in a sandbox (model load stubbed): Custom -> 1 pass; Custom+multipass -> 2 passes with PASS2 == PASS1 sliders; Custom+multipass+custom_pass2 overrides applied per key with None ignored; V3 2-Pass stays 2 with the checkbox off; V1 1-Pass stays 1 with it on. Full run() executed on a real 5-frame 160x120 mp4 with Custom+multipass and a stubbed inference call: Pass 1 wrote the FFV1 intermediate, lossless resize ran, Pass 2 decoded it and processed all 5 frames. Only the final h264_nvenc encode failed (exit 255) because this sandbox has no NVIDIA GPU — same known environment limit recorded in earlier passes; the pass structure itself is confirmed identical to the preset path."
+  },
+  "fix_2_live_logs": {
+   "root_cause": "run_upscale was a plain (non-generator) function: every _log() line was appended to a local list and printed to Colab stdout, but the Gradio Textbox received the joined string only in the single return at the very end. The user watching the full-screen *.gradio.live tab therefore saw an empty log box for the whole run.",
+   "change": [
+    "run_upscale is now a generator. The pipeline runs on a daemon worker thread; _log() and progress_cb push through a queue.Queue and the generator yields a refreshed log snapshot at most every 0.4s while the run is in flight.",
+    "Unchanged outputs are yielded as gr.update() so the video/image/file components are not cleared mid-run.",
+    "demo.queue() added before demo.launch() — required for streaming generators.",
+    "gr.Progress(track_tqdm=True) retained; per-frame 'frame i/N' messages still drive the bar (and are kept out of the log box to avoid flooding), milestones go to both. Extra milestone lines added: input received, preset/scale/multipass echo, model loading, resolved pass count, output written, upload, done, and the traceback tail on error.",
+    "Log textbox: autoscroll=True, 18 lines, relabelled 'Live log (updates during the run)'."
+   ],
+   "verification": "Generator driven directly against a fake upscaler in a sandbox Gradio 6 install: multiple interim yields observed during the run (log grows incrementally), final yield carries outputs + full log ending 'Done.'; blocks build and demo.queue() succeed."
+  },
+  "fix_3_copy_button": {
+   "root_cause": "The temp-host URL existed only as one line inside the multi-line log textbox — nothing to copy from except manual selection.",
+   "change": "Dedicated read-only 'Temporary download link' textbox (5th output, populated with the live URL) plus a '📋 Copy link' button wired with copy_btn.click(None, inputs=[out_link], outputs=None, js=\"(t) => { if (t) { navigator.clipboard.writeText(t); } return []; }\"). The JS receives the component's value at click time, so it can never copy a stale or example value.",
+   "why_not_show_copy_button": "Textbox(show_copy_button=True) raises TypeError on Gradio 6 (verified in sandbox) and the notebook pins only gradio>=4.0, so the version-agnostic button + js clipboard call was used instead."
+  },
+  "not_verifiable_here": "No NVIDIA GPU / TensorRT in the sandbox, so a full real upscale with live weights was not run. Inference was stubbed; everything around it (pass orchestration, ffmpeg decode/encode wiring, Gradio streaming, UI build) was exercised.",
+  "status": "committed and pushed"
  }
 }
