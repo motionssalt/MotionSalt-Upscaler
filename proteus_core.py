@@ -6,7 +6,7 @@ creator (HF user: legend2008). Same model, tiling, temporal-state and
 encoder recipes; refactored into a class so a UI can call it
 programmatically. All credit for the method belongs to the original author.
 """
-import os, time, math, subprocess, shutil, json, threading, sys
+import os, time, math, subprocess, shutil, json, threading, sys, atexit
 import numpy as np
 import cv2
 
@@ -33,30 +33,62 @@ except ImportError:
 # Fix: lazily create + push the device primary context on whichever thread
 # actually runs TensorRT (never autoinit at import time).
 _CUDA_CTX_HOLDER = {}
+_CUDA_CTX_LOCK = threading.Lock()
 
 
 def ensure_cuda_context(thread_key=None):
     """Initialise CUDA and make a context current on the CALLING thread.
     Returns True on success, False if CUDA/pycuda is unavailable."""
-    if not _HAS_PYCUDA:
+    if not _HAS_PYCUDA or cuda is None:
         return False
     key = thread_key if thread_key is not None else threading.get_ident()
-    if key in _CUDA_CTX_HOLDER:
-        return True
+    with _CUDA_CTX_LOCK:
+        if key in _CUDA_CTX_HOLDER:
+            return True
     try:
         cuda.init()
         try:
             if cuda.Context.get_current() is not None:
-                _CUDA_CTX_HOLDER[key] = None  # context owned elsewhere; still fine
+                with _CUDA_CTX_LOCK:
+                    _CUDA_CTX_HOLDER[key] = None  # context owned elsewhere; still fine
                 return True
         except Exception:
             pass
         ctx = cuda.Device(0).retain_primary_context()
         ctx.push()
-        _CUDA_CTX_HOLDER[key] = ctx
+        with _CUDA_CTX_LOCK:
+            _CUDA_CTX_HOLDER[key] = ctx
         return True
     except Exception:
         return False
+
+
+def release_cuda_context(thread_key=None):
+    """Safely pops any CUDA context made current on the calling thread.
+    Ensures the PyCUDA thread-local context stack is completely empty so that
+    thread termination or module shutdown never aborts with
+    'PyCUDA ERROR: The context stack was not empty upon module cleanup'."""
+    if not _HAS_PYCUDA or cuda is None:
+        return
+    key = thread_key if thread_key is not None else threading.get_ident()
+    with _CUDA_CTX_LOCK:
+        _CUDA_CTX_HOLDER.pop(key, None)
+    try:
+        while True:
+            cur = cuda.Context.get_current()
+            if cur is None:
+                break
+            cuda.Context.pop()
+    except Exception:
+        pass
+    try:
+        from pycuda.tools import clear_context_caches
+        clear_context_caches()
+    except Exception:
+        pass
+
+
+atexit.register(release_cuda_context)
 
 
 def gpu_summary():
@@ -269,12 +301,71 @@ class MotionSaltUpscaler:
             return
         except Exception as _trt_err:
             self.log(f"WARNING: TensorRT path unusable on this GPU/session: {_trt_err}")
+            # Immediately clean up TRT buffers and pop CUDA context before falling back to ONNX
+            self._cleanup_trt()
+            release_cuda_context()
             if _onnx_path is None:
                 raise
             self.log(f"-> Auto-fallback to portable ONNX model: {os.path.basename(_onnx_path)}")
             self.MODEL_PATH = _onnx_path
             self.MODEL_IS_ONNX = True
             self._init_onnx(_HAS_CUDA)
+
+    def _cleanup_trt(self):
+        """Free TensorRT execution context, engine, stream, and GPU buffers."""
+        try:
+            if hasattr(self, 'stream') and self.stream is not None:
+                try:
+                    self.stream.synchronize()
+                except Exception:
+                    pass
+                del self.stream
+                self.stream = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'context') and self.context is not None:
+                del self.context
+                self.context = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'engine') and self.engine is not None:
+                del self.engine
+                self.engine = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'd_input') and self.d_input is not None:
+                del self.d_input
+                self.d_input = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'd_output') and self.d_output is not None:
+                del self.d_output
+                self.d_output = None
+        except Exception:
+            pass
+
+    def cleanup(self):
+        """Release allocated GPU resources and pop CUDA context on this thread."""
+        self._cleanup_trt()
+        if not getattr(self, 'MODEL_IS_ONNX', True):
+            release_cuda_context()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+        return False
+
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
     def _init_onnx(self, has_cuda):
         import onnxruntime as _ort
@@ -987,6 +1078,14 @@ class MotionSaltUpscaler:
 
     # ------------------------------------------------------------------ entry point
     def run(self, output_dir="/content/outputs", progress_cb=None):
+        if not self.MODEL_IS_ONNX:
+            ensure_cuda_context()
+        try:
+            return self._run_impl(output_dir=output_dir, progress_cb=progress_cb)
+        finally:
+            self.cleanup()
+
+    def _run_impl(self, output_dir="/content/outputs", progress_cb=None):
         os.makedirs(output_dir, exist_ok=True)
         if not os.path.exists(self.INPUT_PATH):
             raise FileNotFoundError(self.INPUT_PATH)
